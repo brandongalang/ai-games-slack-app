@@ -288,7 +288,7 @@ export class HomeTabService {
 
     blocks.push({ type: 'divider' });
 
-    // Enhanced user stats section
+    // Enhanced user stats section or new user welcome
     if (data.userRanking) {
       const { user, totalUsers, percentile, xpUntilNextRank } = data.userRanking;
       const rankEmoji = user.rank <= 3 ? ['🥇', '🥈', '🥉'][user.rank - 1] : '📊';
@@ -323,21 +323,39 @@ export class HomeTabService {
           }
         });
       }
+    } else {
+      // New user - show getting started info
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '🚀 *Get Started!*\nYou haven\'t submitted any prompts yet. Start your AI Games journey and earn your first XP!'
+        }
+      });
+      
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '📊 *How it works:*\n• Submit AI prompts to earn XP\n• Build streaks for bonus rewards\n• Climb the leaderboard\n• Earn achievements and badges\n• Get helpful community feedback'
+        }
+      });
     }
 
-    // Quick action buttons
-    blocks.push({
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '🚀 Submit Prompt'
-          },
-          action_id: 'trigger_submit_command',
-          style: 'primary'
-        },
+    // Quick action buttons - different for new vs existing users
+    const actionButtons: any[] = [{
+      type: 'button',
+      text: {
+        type: 'plain_text',
+        text: data.userRanking ? '🚀 Submit Prompt' : '🚀 Submit First Prompt'
+      },
+      action_id: 'trigger_submit_command',
+      style: 'primary'
+    }];
+
+    // Add additional buttons for existing users
+    if (data.userRanking) {
+      actionButtons.push(
         {
           type: 'button',
           text: {
@@ -362,7 +380,24 @@ export class HomeTabService {
           },
           action_id: 'view_xp_breakdown'
         }
-      ]
+      );
+    } else {
+      // For new users, show leaderboard and community instead
+      actionButtons.push(
+        {
+          type: 'button',
+          text: {
+            type: 'plain_text',
+            text: '🏆 Leaderboard'
+          },
+          action_id: 'view_full_leaderboard'
+        }
+      );
+    }
+
+    blocks.push({
+      type: 'actions',
+      elements: actionButtons
     });
 
     // Current challenge section

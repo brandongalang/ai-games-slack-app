@@ -69,13 +69,14 @@ A gamified Slack application that encourages AI prompt sharing and collaboration
 
 This project uses TypeScript and the Slack Bolt framework.
 
-### Task List (15/26 Complete - 58%)
+### Task List (16/26 Complete - 62%)
 
 #### ✅ Completed Tasks
 - **Task 1**: Project Setup and Initialization
 - **Task 2**: Database Schema Implementation  
 - **Task 3**: Implement `/submit` Slash Command and Modal
 - **Task 4**: Basic XP Awarding for Submission
+- **Task 5**: Implement Slack Home Tab - Personal View (Basic)
 - **Task 6**: Setup Cloud Run for LLM Services
 - **Task 8**: Implement Weekly Prompt Challenge System
 - **Task 9**: Implement Real-time Leaderboard System  
@@ -88,7 +89,6 @@ This project uses TypeScript and the Slack Bolt framework.
 - **Task 16**: Implement Team Leaderboard on Home Tab
 
 #### 🔄 In Progress Tasks
-- **Task 5**: Implement Slack Home Tab - Personal View (Basic)
 - **Task 7**: Implement LLM Clarity Scorer
 
 #### 📋 Pending Tasks
