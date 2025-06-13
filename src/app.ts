@@ -1,5 +1,9 @@
 import { App } from '@slack/bolt';
+import express from 'express';
 import dotenv from 'dotenv';
+import { schedulerRouter } from './routes/scheduler';
+import { streaksRouter } from './routes/streaks';
+import { xpRouter } from './routes/xp';
 
 dotenv.config();
 
@@ -11,12 +15,226 @@ const app = new App({
   port: parseInt(process.env.PORT || '3000')
 });
 
+// Create Express app for HTTP endpoints (scheduler, webhooks)
+const expressApp = express();
+expressApp.use(express.json());
+
+// Make Slack app available to Express routes
+expressApp.set('slackApp', app);
+
+// Add scheduler routes
+expressApp.use('/scheduler', schedulerRouter);
+
+// Add streaks routes
+expressApp.use('/streaks', streaksRouter);
+
+// Add XP routes
+expressApp.use('/xp', xpRouter);
+
 // Handle app_home_opened event
 app.event('app_home_opened', async ({ event, client }) => {
   try {
     console.log('Home tab opened by user:', event.user);
     
-    // Basic home tab view
+    const { LeaderboardService } = await import('./services/leaderboardService');
+    const { ChallengeService } = await import('./services/challengeService');
+    const { AnalyticsService } = await import('./services/analyticsService');
+    
+    // Get user ranking and leaderboard data
+    const userRanking = await LeaderboardService.getUserRanking(event.user);
+    const topUsers = await LeaderboardService.getGlobalLeaderboard(5);
+    const stats = await LeaderboardService.getLeaderboardStats();
+    
+    // Get user analytics for insights
+    let userAnalytics;
+    try {
+      userAnalytics = await AnalyticsService.getUserAnalytics(event.user);
+    } catch (e) {
+      // Analytics might not be available for new users
+    }
+    
+    // Get current challenge
+    let currentChallenge;
+    try {
+      currentChallenge = await ChallengeService.getCurrentWeekChallenge();
+    } catch (e) {
+      // Challenge service might not be available yet
+    }
+
+    const blocks: any[] = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '🎮 *Welcome to AI Games!*\n\nYour personal dashboard for tracking XP, streaks, and competing with your team!'
+        }
+      },
+      {
+        type: 'divider'
+      }
+    ];
+
+    // User stats section
+    if (userRanking) {
+      const { user, totalUsers, percentile, xpUntilNextRank } = userRanking;
+      const rankEmoji = user.rank <= 3 ? ['🥇', '🥈', '🥉'][user.rank - 1] : '📊';
+      const streakText = user.current_streak > 0 ? ` • 🔥 ${user.current_streak} day streak` : '';
+      const nextRankText = xpUntilNextRank ? `\n📈 ${xpUntilNextRank} XP to next rank` : '';
+      
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${rankEmoji} *Your Stats*\n#${user.rank} of ${totalUsers} (Top ${percentile}%)\n💰 ${user.total_xp} XP${streakText}${nextRankText}`
+        },
+        accessory: {
+          type: 'button',
+          text: {
+            type: 'plain_text',
+            text: '📊 Full Status'
+          },
+          action_id: 'view_full_status'
+        }
+      });
+
+      // Add analytics insights if available
+      if (userAnalytics) {
+        const frequencyEmoji = {
+          daily: '🔥',
+          weekly: '📅', 
+          monthly: '📊',
+          inactive: '😴'
+        };
+        
+        const trendEmoji = {
+          increasing: '📈',
+          stable: '➡️',
+          decreasing: '📉'
+        };
+
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `📊 *Your Insights*\n${frequencyEmoji[userAnalytics.submissionFrequency]} ${userAnalytics.submissionFrequency.charAt(0).toUpperCase() + userAnalytics.submissionFrequency.slice(1)} contributor • ${trendEmoji[userAnalytics.activityTrend]} ${userAnalytics.activityTrend} trend\n💡 ${userAnalytics.totalSubmissions} submissions • 📈 ${userAnalytics.averageXpPerSubmission} avg XP`
+          },
+          accessory: {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '📈 Full Analytics'
+            },
+            action_id: 'view_full_analytics'
+          }
+        });
+      }
+    } else {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '🌟 *Get Started*\nSubmit your first prompt to start earning XP and climbing the leaderboard!'
+        },
+        accessory: {
+          type: 'button',
+          text: {
+            type: 'plain_text',
+            text: '🚀 Submit Prompt'
+          },
+          action_id: 'trigger_submit_command'
+        }
+      });
+    }
+
+    // Current challenge section
+    if (currentChallenge) {
+      blocks.push(
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `🎯 *Week ${currentChallenge.week_number} Challenge*\n${currentChallenge.prompt_text.substring(0, 150)}${currentChallenge.prompt_text.length > 150 ? '...' : ''}`
+          },
+          accessory: {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '🎯 Respond'
+            },
+            action_id: 'submit_challenge_response'
+          }
+        }
+      );
+    }
+
+    // Top players preview
+    if (topUsers.length > 0) {
+      blocks.push(
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*🏆 Top Players*'
+          },
+          accessory: {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: 'View Full Board'
+            },
+            action_id: 'view_full_leaderboard'
+          }
+        }
+      );
+
+      topUsers.slice(0, 3).forEach((user, index) => {
+        const rankEmoji = ['🥇', '🥈', '🥉'][index];
+        const isCurrentUser = user.slack_user_id === event.user;
+        const userText = isCurrentUser ? `*<@${user.slack_user_id}>* ⭐` : `<@${user.slack_user_id}>`;
+        
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `${rankEmoji} ${userText} • ${user.total_xp} XP`
+          }
+        });
+      });
+    }
+
+    // Community stats
+    blocks.push(
+      {
+        type: 'divider'
+      },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: `🌟 ${stats.totalUsers} players • 💰 ${stats.totalXP.toLocaleString()} total XP • 🔥 ${stats.topStreak} day top streak`
+          }
+        ]
+      }
+    );
+
+    await client.views.publish({
+      user_id: event.user,
+      view: {
+        type: 'home',
+        blocks
+      }
+    });
+  } catch (error) {
+    console.error('Error publishing home tab:', error);
+    
+    // Fallback to basic home tab
     await client.views.publish({
       user_id: event.user,
       view: {
@@ -33,14 +251,12 @@ app.event('app_home_opened', async ({ event, client }) => {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '📊 *Your Stats*\n• XP: 0\n• Current Streak: 0 days\n• Season Progress: Just getting started!'
+              text: '📊 *Getting Started*\nUse `/submit` to submit your first prompt and start earning XP!'
             }
           }
         ]
       }
     });
-  } catch (error) {
-    console.error('Error publishing home tab:', error);
   }
 });
 
@@ -224,6 +440,494 @@ app.command('/submit', async ({ ack, body, client }) => {
   }
 });
 
+// Handle /leaderboard slash command
+app.command('/leaderboard', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { LeaderboardService } = await import('./services/leaderboardService');
+    
+    // Get leaderboard data
+    const leaderboard = await LeaderboardService.getGlobalLeaderboard(10);
+    const blocks = LeaderboardService.formatLeaderboardForSlack(
+      leaderboard,
+      '🏆 AI Games Leaderboard',
+      body.user_id
+    );
+
+    // Send as ephemeral message
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '🏆 AI Games Leaderboard',
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling /leaderboard command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error fetching the leaderboard. Please try again later.'
+    });
+  }
+});
+
+// Handle /status slash command
+app.command('/status', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { LeaderboardService } = await import('./services/leaderboardService');
+    const { AnalyticsService } = await import('./services/analyticsService');
+    
+    // Get user ranking and analytics
+    const ranking = await LeaderboardService.getUserRanking(body.user_id);
+    const analytics = await AnalyticsService.getUserAnalytics(body.user_id);
+    
+    if (!ranking || !analytics) {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and earn your first XP!',
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and earn your first XP!'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🚀 Submit First Prompt'
+                },
+                action_id: 'trigger_submit_command'
+              }
+            ]
+          }
+        ]
+      });
+      return;
+    }
+
+    // Combine ranking and analytics blocks
+    const rankingBlocks = LeaderboardService.formatUserRankingForSlack(ranking);
+    const analyticsBlocks = AnalyticsService.formatAnalyticsForSlack(analytics);
+    
+    // Combine blocks with a divider
+    const combinedBlocks = [
+      ...rankingBlocks,
+      { type: 'divider' },
+      ...analyticsBlocks
+    ];
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: `📊 Your AI Games Status & Analytics`,
+      blocks: combinedBlocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling /status command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error fetching your status. Please try again later.'
+    });
+  }
+});
+
+// Handle /analytics slash command  
+app.command('/analytics', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { AnalyticsService } = await import('./services/analyticsService');
+    
+    // Get user analytics
+    const analytics = await AnalyticsService.getUserAnalytics(body.user_id);
+    
+    if (!analytics) {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and see your analytics!',
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and see your analytics!'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🚀 Submit First Prompt'
+                },
+                action_id: 'trigger_submit_command'
+              }
+            ]
+          }
+        ]
+      });
+      return;
+    }
+
+    const blocks = AnalyticsService.formatAnalyticsForSlack(analytics);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: `📊 Your Advanced Analytics`,
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling /analytics command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error fetching your analytics. Please try again later.'
+    });
+  }
+});
+
+// Handle /community slash command
+app.command('/community', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { AnalyticsService } = await import('./services/analyticsService');
+    
+    // Get community analytics
+    const communityStats = await AnalyticsService.getCommunityAnalytics();
+    
+    const trendEmoji = {
+      growing: '📈',
+      stable: '➡️',
+      declining: '📉'
+    };
+
+    const blocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `🌟 *AI Games Community Analytics*`
+        }
+      },
+      {
+        type: 'divider'
+      },
+      {
+        type: 'section',
+        fields: [
+          {
+            type: 'mrkdwn',
+            text: `*👥 Total Members*\n${communityStats.totalUsers}`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*🔥 Active Users*\n${communityStats.activeUsers}`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*📝 Total Submissions*\n${communityStats.totalSubmissions.toLocaleString()}`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*💰 Total XP*\n${communityStats.totalXP.toLocaleString()}`
+          }
+        ]
+      },
+      {
+        type: 'section',
+        fields: [
+          {
+            type: 'mrkdwn',
+            text: `*📊 Avg XP/User*\n${communityStats.averageXpPerUser}`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*${trendEmoji[communityStats.activityTrend]} Trend*\n${communityStats.activityTrend.charAt(0).toUpperCase() + communityStats.activityTrend.slice(1)}`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*🆕 New This Week*\n${communityStats.newUsersThisWeek} users`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*📝 Posts This Week*\n${communityStats.submissionsThisWeek}`
+          }
+        ]
+      }
+    ];
+
+    // Add top categories if available
+    if (communityStats.topCategories.length > 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*🏷️ Popular Categories*\n${communityStats.topCategories.slice(0, 5).map(cat => `• ${cat.category} (${cat.count})`).join('\n')}`
+        }
+      });
+    }
+
+    // Add streak leaders
+    if (communityStats.streakLeaders.length > 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*🔥 Streak Leaders*\n${communityStats.streakLeaders.map((leader, i) => `${i + 1}. ${leader.username} - ${leader.streak} days`).join('\n')}`
+        }
+      });
+    }
+
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: `🌟 AI Games Community Analytics`,
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling /community command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error fetching community analytics. Please try again later.'
+    });
+  }
+});
+
+// Handle /streak slash command
+app.command('/streak', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { StreakService } = await import('./services/streakService');
+    const { UserService } = await import('./services/userService');
+    
+    // Get user by Slack ID
+    const user = await UserService.getUserBySlackId(body.user_id);
+    
+    if (!user) {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and start your streak!',
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and start your streak!'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🚀 Submit First Prompt'
+                },
+                action_id: 'trigger_submit_command'
+              }
+            ]
+          }
+        ]
+      });
+      return;
+    }
+
+    // Get user's streak data
+    const streakData = await StreakService.calculateUserStreak(user.user_id);
+    const streakBlocks = StreakService.formatStreakForSlack(streakData);
+    
+    // Get streak leaders for comparison
+    const streakLeaders = await StreakService.getStreakLeaders(5);
+    
+    const leaderboardText = streakLeaders.length > 0 
+      ? `\n\n*🏆 Streak Leaders*\n${streakLeaders.map((leader, i) => `${i + 1}. ${leader.username} - ${leader.streak} days`).join('\n')}`
+      : '';
+
+    const fullBlocks = [
+      ...streakBlocks,
+      ...(leaderboardText ? [
+        { type: 'divider' },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: leaderboardText
+          }
+        }
+      ] : []),
+      { type: 'divider' },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: '💡 Keep your streak alive by submitting prompts, comments, or reactions daily!'
+          }
+        ]
+      }
+    ];
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: `🔥 Your Streak Status`,
+      blocks: fullBlocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling /streak command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error fetching your streak data. Please try again later.'
+    });
+  }
+});
+
+// Handle /xp slash command for comprehensive XP breakdown
+app.command('/xp', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { XPService } = await import('./services/xpService');
+    const { UserService } = await import('./services/userService');
+    
+    // Get user by Slack ID
+    const user = await UserService.getUserBySlackId(body.user_id);
+    
+    if (!user) {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and start earning XP!',
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and start earning XP!'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🚀 Submit First Prompt'
+                },
+                action_id: 'trigger_submit_command'
+              }
+            ]
+          }
+        ]
+      });
+      return;
+    }
+
+    // Get comprehensive XP breakdown
+    const breakdown = await XPService.getUserXPBreakdown(user.user_id, 30);
+    const xpBlocks = XPService.formatXPBreakdownForSlack(breakdown);
+    
+    // Add daily XP trend
+    const recentDays = breakdown.dailyXP.slice(-7);
+    const trendText = recentDays.length > 0
+      ? `*📈 Recent Activity (Last 7 Days)*\n${recentDays.map(day => 
+          `${day.date}: ${day.xp} XP (${day.events} events)`
+        ).join('\n')}`
+      : '*📈 Recent Activity*\nNo activity in the last 7 days';
+
+    const fullBlocks = [
+      ...xpBlocks,
+      { type: 'divider' },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: trendText
+        }
+      },
+      { type: 'divider' },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '📊 View Analytics'
+            },
+            action_id: 'view_full_analytics'
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '🔥 View Streak'
+            },
+            action_id: 'view_streak_status'
+          }
+        ]
+      },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: '💡 Improve your quality score by submitting clear, helpful, and original content!'
+          }
+        ]
+      }
+    ];
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: `💰 Your XP Breakdown`,
+      blocks: fullBlocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling /xp command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error fetching your XP breakdown. Please try again later.'
+    });
+  }
+});
+
 // Handle modal submission
 app.view('submit_prompt_modal', async ({ ack, body, view, client }) => {
   await ack();
@@ -255,10 +959,40 @@ app.view('submit_prompt_modal', async ({ ack, body, view, client }) => {
     // Get or create user
     const user = await UserService.getOrCreateUser(body.user.id, body.user.name);
     
-    // Determine submission type
+    // Check if this is a challenge response
     let submissionType: 'workflow' | 'challenge_response' | 'remix' = 'workflow';
-    if (remixSelection) {
+    let challengeBonus = false;
+    
+    try {
+      const metadata = JSON.parse(view.private_metadata || '{}');
+      if (metadata.challengeResponse) {
+        submissionType = 'challenge_response';
+        challengeBonus = true;
+      }
+    } catch (e) {
+      // No metadata or invalid JSON, ignore
+    }
+    
+    if (remixSelection && submissionType !== 'challenge_response') {
       submissionType = 'remix';
+    }
+    
+    // Check for duplicates and similarity before creating submission
+    const { SimilarityService } = await import('./services/similarityService');
+    
+    const duplicateCheck = await SimilarityService.checkForDuplicates(
+      promptText, 
+      user.user_id
+    );
+    
+    if (duplicateCheck.isDuplicate && duplicateCheck.action === 'reject') {
+      // Send ephemeral message about duplicate detection
+      await client.chat.postEphemeral({
+        channel: body.user.id, // Send as DM
+        user: body.user.id,
+        text: `🚫 *Duplicate Content Detected*\n\nYour submission appears to be very similar to a previous submission.\n\n**Reason:** ${duplicateCheck.reasoning}\n\nPlease try submitting something more original to earn XP.`
+      });
+      return;
     }
     
     // Create submission
@@ -282,27 +1016,62 @@ app.view('submit_prompt_modal', async ({ ack, body, view, client }) => {
       type: submissionType
     });
     
-    // Calculate XP earned (check submission count after creation)
-    const submissionCount = await supabaseAdmin
-      .from('submissions')
-      .select('*', { count: 'exact', head: true })
-      .eq('author_id', user.user_id);
-    
-    const isFirst = (submissionCount.count || 0) === 1; // This was their first submission
-    let xpEarned = 10; // Base submission XP
-    if (isFirst) {
-      xpEarned += 5; // First submission bonus
+    // Process similarity analysis and remix scoring for post-submission analysis
+    let remixAnalysis = null;
+    if (submissionType === 'remix' && remixSelection) {
+      remixAnalysis = await SimilarityService.analyzeRemixQuality(
+        submission.submission_id,
+        parseInt(remixSelection)
+      );
     }
     
-    // Send confirmation DM with XP info
-    const confirmationText = [
-      `🎉 *Awesome submission!* Your prompt has been added to the AI Games library.`,
-      ``,
-      `💰 *XP Earned:* +${xpEarned} XP`,
-      isFirst ? `🌟 *First submission bonus!* Welcome to AI Games!` : '',
-      ``,
-      `Check out your progress in the Home tab or use \`/status\` to see your stats.`
-    ].filter(Boolean).join('\n');
+    // Calculate XP using the comprehensive XP system
+    const { XPService } = await import('./services/xpService');
+    
+    // Award base submission XP
+    const xpResult = await XPService.awardXP({
+      userId: user.user_id,
+      eventType: 'SUBMISSION_BASE',
+      submissionId: submission.submission_id,
+      metadata: {
+        submissionType,
+        challengeResponse: challengeBonus,
+        remixAnalysis: remixAnalysis || undefined,
+        duplicateWarning: duplicateCheck.isDuplicate ? duplicateCheck.reasoning : undefined
+      }
+    });
+    
+    const xpEarned = xpResult.totalXP;
+    
+    // Build confirmation message with detailed XP breakdown
+    const confirmationParts = [
+      challengeBonus ? `🎯 *Challenge response submitted!* Your response has been added to the AI Games library.` : `🎉 *Awesome submission!* Your prompt has been added to the AI Games library.`,
+      ``
+    ];
+    
+    // Add XP breakdown
+    confirmationParts.push(`💰 *XP Earned:* +${xpEarned} XP`);
+    
+    // Add XP breakdown details if available
+    if (xpResult.breakdown && xpResult.breakdown.length > 0) {
+      confirmationParts.push(`📊 *XP Breakdown:*`);
+      xpResult.breakdown.forEach((item: any) => {
+        confirmationParts.push(`• ${item.reason}: +${item.xp} XP`);
+      });
+    }
+    
+    // Add similarity analysis results
+    if (duplicateCheck.isDuplicate && duplicateCheck.action === 'flag') {
+      confirmationParts.push(`⚠️ *Similarity Notice:* ${duplicateCheck.reasoning}`);
+    }
+    
+    if (remixAnalysis && remixAnalysis.improvementScore > 0) {
+      confirmationParts.push(`🔄 *Remix Quality:* Your remix scored ${remixAnalysis.improvementScore}/10 for improvement!`);
+    }
+    
+    confirmationParts.push(``, `Check out your progress in the Home tab or use \`/status\` to see your stats.`);
+    
+    const confirmationText = confirmationParts.filter(Boolean).join('\n');
     
     await client.chat.postMessage({
       channel: body.user.id,
@@ -549,8 +1318,535 @@ app.shortcut('remix_this_prompt', async ({ ack, body, client }) => {
   }
 });
 
+// Handle button actions for challenge responses
+app.action('submit_challenge_response', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { ChallengeService } = await import('./services/challengeService');
+    
+    // Get current challenge
+    const currentChallenge = await ChallengeService.getCurrentWeekChallenge();
+    
+    if (!currentChallenge) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.user.id,
+        user: body.user.id,
+        text: '❌ No active challenge found. Check back on Monday for the new weekly challenge!'
+      });
+      return;
+    }
+
+    // Open the submit modal pre-configured for challenge response
+    await client.views.open({
+      trigger_id: (body as any).trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'submit_prompt_modal',
+        private_metadata: JSON.stringify({ 
+          challengeResponse: true, 
+          seedPromptId: currentChallenge.seed_prompt_id 
+        }),
+        title: {
+          type: 'plain_text',
+          text: 'Challenge Response'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `🎯 *Week ${currentChallenge.week_number} Challenge Response*\n\n*Prompt:* ${currentChallenge.prompt_text}`
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'input',
+            block_id: 'title_input',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'title_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Give your response a title...'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Response Title'
+            },
+            optional: true
+          },
+          {
+            type: 'input',
+            block_id: 'prompt_input',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'prompt_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'Share your response to this week\'s challenge...'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Your Response *'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'description_input',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'description_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'Explain your approach or reasoning...'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Explanation'
+            },
+            optional: true
+          },
+          {
+            type: 'input',
+            block_id: 'output_input',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'output_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'Share example output or results...'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Example Output'
+            },
+            optional: true
+          }
+        ],
+        submit: {
+          type: 'plain_text',
+          text: 'Submit Response'
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error handling challenge response button:', error);
+  }
+});
+
+// Handle view_full_leaderboard button action
+app.action('view_full_leaderboard', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { LeaderboardService } = await import('./services/leaderboardService');
+    
+    // Get leaderboard data
+    const leaderboard = await LeaderboardService.getGlobalLeaderboard(15);
+    const blocks = LeaderboardService.formatLeaderboardForSlack(
+      leaderboard,
+      '🏆 Full AI Games Leaderboard',
+      body.user.id
+    );
+
+    // Send as ephemeral message
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '🏆 Full AI Games Leaderboard',
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling view_full_leaderboard action:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error fetching the leaderboard. Please try again later.'
+    });
+  }
+});
+
+// Handle view_challenge_leaderboard button action
+app.action('view_challenge_leaderboard', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { ChallengeService } = await import('./services/challengeService');
+    const { LeaderboardService } = await import('./services/leaderboardService');
+    
+    // Get current challenge
+    const currentChallenge = await ChallengeService.getCurrentWeekChallenge();
+    
+    if (!currentChallenge) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.user.id,
+        user: body.user.id,
+        text: '❌ No active challenge found. Check back on Monday for the new weekly challenge!'
+      });
+      return;
+    }
+
+    // For now, show global leaderboard with challenge context
+    // TODO: Implement challenge-specific leaderboard once challenge submissions are tracked
+    const leaderboard = await LeaderboardService.getGlobalLeaderboard(10);
+    const blocks = LeaderboardService.formatLeaderboardForSlack(
+      leaderboard,
+      `🎯 Week ${currentChallenge.week_number} Challenge Leaderboard`,
+      body.user.id
+    );
+
+    // Add challenge context at the top
+    blocks.splice(1, 0, {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Current Challenge:* ${currentChallenge.prompt_text.substring(0, 100)}${currentChallenge.prompt_text.length > 100 ? '...' : ''}`
+      }
+    });
+
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: `🎯 Week ${currentChallenge.week_number} Challenge Leaderboard`,
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling view_challenge_leaderboard action:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error fetching the challenge leaderboard. Please try again later.'
+    });
+  }
+});
+
+// Handle trigger_submit_command button action
+app.action('trigger_submit_command', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '🚀 Use the `/submit` command to submit your first prompt and start earning XP!'
+    });
+  } catch (error) {
+    console.error('Error handling trigger_submit_command action:', error);
+  }
+});
+
+// Handle view_full_status button action
+app.action('view_full_status', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { LeaderboardService } = await import('./services/leaderboardService');
+    const { AnalyticsService } = await import('./services/analyticsService');
+    
+    // Get user ranking and analytics
+    const ranking = await LeaderboardService.getUserRanking(body.user.id);
+    const analytics = await AnalyticsService.getUserAnalytics(body.user.id);
+    
+    if (!ranking || !analytics) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.user.id,
+        user: body.user.id,
+        text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and earn your first XP!'
+      });
+      return;
+    }
+
+    // Combine ranking and analytics blocks
+    const rankingBlocks = LeaderboardService.formatUserRankingForSlack(ranking);
+    const analyticsBlocks = AnalyticsService.formatAnalyticsForSlack(analytics);
+    
+    const combinedBlocks = [
+      ...rankingBlocks,
+      { type: 'divider' },
+      ...analyticsBlocks
+    ];
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: `📊 Your AI Games Status & Analytics`,
+      blocks: combinedBlocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling view_full_status action:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error fetching your status. Please try again later.'
+    });
+  }
+});
+
+// Handle view_full_analytics button action
+app.action('view_full_analytics', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { AnalyticsService } = await import('./services/analyticsService');
+    
+    // Get user analytics
+    const analytics = await AnalyticsService.getUserAnalytics(body.user.id);
+    
+    if (!analytics) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.user.id,
+        user: body.user.id,
+        text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and see your analytics!'
+      });
+      return;
+    }
+
+    const blocks = AnalyticsService.formatAnalyticsForSlack(analytics);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: `📊 Your Advanced Analytics`,
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling view_full_analytics action:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error fetching your analytics. Please try again later.'
+    });
+  }
+});
+
+// Handle view_streak_status button action
+app.action('view_streak_status', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { StreakService } = await import('./services/streakService');
+    const { UserService } = await import('./services/userService');
+    
+    // Get user by Slack ID
+    const user = await UserService.getUserBySlackId(body.user.id);
+    
+    if (!user) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.user.id,
+        user: body.user.id,
+        text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and start your streak!'
+      });
+      return;
+    }
+
+    // Get user's streak data
+    const streakData = await StreakService.calculateUserStreak(user.user_id);
+    const streakBlocks = StreakService.formatStreakForSlack(streakData);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: `🔥 Your Streak Status`,
+      blocks: streakBlocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling view_streak_status action:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error fetching your streak data. Please try again later.'
+    });
+  }
+});
+
+// Handle /comments slash command (admin only)
+app.command('/comments', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    // Check if user is admin
+    const adminUsers = (process.env.ADMIN_USERS || '').split(',').map(u => u.trim());
+    if (!adminUsers.includes(body.user_id)) {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '❌ This command is only available to administrators.'
+      });
+      return;
+    }
+    
+    const { CommentService } = await import('./services/commentService');
+    const args = (body.text || '').trim().split(' ');
+    const command = args[0]?.toLowerCase();
+    
+    if (command === 'analyze' && args[1]) {
+      // Analyze a specific comment
+      const commentId = parseInt(args[1]);
+      if (isNaN(commentId)) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '❌ Please provide a valid comment ID: `/comments analyze <comment_id>`'
+        });
+        return;
+      }
+      
+      const analysis = await CommentService.reanalyzeComment(commentId);
+      
+      if (!analysis) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '❌ Failed to analyze comment. Please check the comment ID.'
+        });
+        return;
+      }
+      
+      const blocks = CommentService.formatAnalysisForSlack(analysis);
+      
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: `🔍 Comment Analysis for ID ${commentId}`,
+        blocks
+      });
+      
+    } else if (command === 'stats') {
+      // Show comment analysis statistics
+      const stats = await CommentService.getCommentAnalysisStats();
+      
+      const statsText = `📊 *Comment Analysis Statistics (Last 30 days)*
+
+📝 **Total Comments:** ${stats.totalComments}
+✅ **Helpful Comments:** ${stats.helpfulComments} (${stats.totalComments > 0 ? Math.round((stats.helpfulComments / stats.totalComments) * 100) : 0}%)
+🤖 **Auto-Detected Helpful:** ${stats.autoDetectedHelpful}
+📈 **Average Helpfulness Score:** ${stats.averageHelpfulnessScore}/100
+
+🔍 The LLM Comment Judge automatically analyzes all comments for helpfulness and awards XP accordingly.`;
+
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: statsText
+      });
+      
+    } else {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: `💬 *Comment Admin Commands*\n\n• \`/comments analyze <comment_id>\` - Re-analyze comment helpfulness\n• \`/comments stats\` - Show analysis statistics\n\n🤖 The system automatically analyzes all new comments using LLM and awards XP for helpful contributions.`
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error handling /comments command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error with the comments command. Please try again later.'
+    });
+  }
+});
+
+// Handle /similarity slash command (admin only)
+app.command('/similarity', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    // Check if user is admin (you can customize this check)
+    const adminUsers = (process.env.ADMIN_USERS || '').split(',').map(u => u.trim());
+    if (!adminUsers.includes(body.user_id)) {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '❌ This command is only available to administrators.'
+      });
+      return;
+    }
+    
+    const { SimilarityService } = await import('./services/similarityService');
+    const args = (body.text || '').trim().split(' ');
+    const command = args[0]?.toLowerCase();
+    
+    if (command === 'check' && args[1]) {
+      // Check similarity for a specific submission ID
+      const submissionId = parseInt(args[1]);
+      if (isNaN(submissionId)) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '❌ Please provide a valid submission ID: `/similarity check <submission_id>`'
+        });
+        return;
+      }
+      
+      const similarSubmissions = await SimilarityService.findSimilarSubmissions(submissionId, 0.7);
+      
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: `🔍 *Similarity Analysis for Submission ${submissionId}*\n\n${similarSubmissions.map((item: any) => 
+          `• vs #${item.targetSubmissionId}: ${(item.similarityScore * 100).toFixed(1)}% similar (${item.similarityType})`
+        ).join('\n') || 'No similar submissions found.'}`
+      });
+      
+    } else if (command === 'stats') {
+      // Show similarity detection stats
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: `📊 *Similarity Detection Stats*\n\n🔍 Service active and monitoring submissions\n📝 Commands:\n• \`/similarity check <id>\` - Analyze specific submission\n• \`/similarity stats\` - Show this info`
+      });
+      
+    } else {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: `🔍 *Similarity Admin Commands*\n\n• \`/similarity check <submission_id>\` - Analyze submission similarity\n• \`/similarity stats\` - Show detection statistics`
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error handling /similarity command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error with the similarity command. Please try again later.'
+    });
+  }
+});
+
 // Start the app
 (async () => {
   await app.start();
   console.log('⚡️ AI Games Slack app is running!');
+  
+  // Start Express server for scheduler endpoints
+  const httpPort = parseInt(process.env.HTTP_PORT || '3001');
+  expressApp.listen(httpPort, () => {
+    console.log(`📅 Scheduler endpoints running on port ${httpPort}`);
+  });
 })();

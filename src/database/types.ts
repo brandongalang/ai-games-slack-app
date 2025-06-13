@@ -118,6 +118,7 @@ export const XP_EVENTS = {
   STREAK_MILESTONE_3: 'streak_milestone_3',
   STREAK_MILESTONE_7: 'streak_milestone_7',
   STREAK_MILESTONE_30: 'streak_milestone_30',
+  STREAK_BONUS: 'streak_bonus',
   REMIX_ORIGINAL: 'remix_original',
   REMIX_IMPROVED: 'remix_improved'
 } as const;
@@ -133,6 +134,7 @@ export const XP_VALUES = {
   [XP_EVENTS.STREAK_MILESTONE_3]: 5,
   [XP_EVENTS.STREAK_MILESTONE_7]: 10,
   [XP_EVENTS.STREAK_MILESTONE_30]: 25,
+  [XP_EVENTS.STREAK_BONUS]: 0, // Dynamic value calculated by StreakService
   [XP_EVENTS.REMIX_ORIGINAL]: 8,
   [XP_EVENTS.REMIX_IMPROVED]: 12
 } as const;
