@@ -69,7 +69,7 @@ A gamified Slack application that encourages AI prompt sharing and collaboration
 
 This project uses TypeScript and the Slack Bolt framework.
 
-### Task List (14/26 Complete - 54%)
+### Task List (15/26 Complete - 58%)
 
 #### ✅ Completed Tasks
 - **Task 1**: Project Setup and Initialization
@@ -84,6 +84,7 @@ This project uses TypeScript and the Slack Bolt framework.
 - **Task 12**: Implement Full XP Event Logic with Comprehensive Scoring System
 - **Task 13**: Implement LLM Similarity/Remix Detector with intelligent content analysis
 - **Task 14**: Implement LLM Helpful Comment Judge
+- **Task 15**: Enhance Home Tab & /status with Full Data
 - **Task 16**: Implement Team Leaderboard on Home Tab
 
 #### 🔄 In Progress Tasks
@@ -91,9 +92,6 @@ This project uses TypeScript and the Slack Bolt framework.
 - **Task 7**: Implement LLM Clarity Scorer
 
 #### 📋 Pending Tasks
-- **Task 14**: Implement LLM Similarity/Remix Detector
-- **Task 15**: Implement LLM Helpful Comment Judge
-- **Task 16**: Enhance Home Tab & /status with Full Data
 - **Task 17**: Implement Badge System & Slack Profile Update
 - **Task 18**: Implement Prompt Library MVP
 - **Task 19**: Implement LLM Digest Writer

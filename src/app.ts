@@ -34,195 +34,15 @@ expressApp.use('/xp', xpRouter);
 // Handle app_home_opened event
 app.event('app_home_opened', async ({ event, client }) => {
   try {
-    console.log('Home tab opened by user:', event.user);
+    console.log('Enhanced home tab opened by user:', event.user);
     
-    const { LeaderboardService } = await import('./services/leaderboardService');
-    const { ChallengeService } = await import('./services/challengeService');
-    const { AnalyticsService } = await import('./services/analyticsService');
+    const { HomeTabService } = await import('./services/homeTabService');
     
-    // Get user ranking and leaderboard data
-    const userRanking = await LeaderboardService.getUserRanking(event.user);
-    const topUsers = await LeaderboardService.getGlobalLeaderboard(5);
-    const stats = await LeaderboardService.getLeaderboardStats();
+    // Get comprehensive home tab data
+    const homeTabData = await HomeTabService.getHomeTabData(event.user);
     
-    // Get user analytics for insights
-    let userAnalytics;
-    try {
-      userAnalytics = await AnalyticsService.getUserAnalytics(event.user);
-    } catch (e) {
-      // Analytics might not be available for new users
-    }
-    
-    // Get current challenge
-    let currentChallenge;
-    try {
-      currentChallenge = await ChallengeService.getCurrentWeekChallenge();
-    } catch (e) {
-      // Challenge service might not be available yet
-    }
-
-    const blocks: any[] = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '🎮 *Welcome to AI Games!*\n\nYour personal dashboard for tracking XP, streaks, and competing with your team!'
-        }
-      },
-      {
-        type: 'divider'
-      }
-    ];
-
-    // User stats section
-    if (userRanking) {
-      const { user, totalUsers, percentile, xpUntilNextRank } = userRanking;
-      const rankEmoji = user.rank <= 3 ? ['🥇', '🥈', '🥉'][user.rank - 1] : '📊';
-      const streakText = user.current_streak > 0 ? ` • 🔥 ${user.current_streak} day streak` : '';
-      const nextRankText = xpUntilNextRank ? `\n📈 ${xpUntilNextRank} XP to next rank` : '';
-      
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `${rankEmoji} *Your Stats*\n#${user.rank} of ${totalUsers} (Top ${percentile}%)\n💰 ${user.total_xp} XP${streakText}${nextRankText}`
-        },
-        accessory: {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '📊 Full Status'
-          },
-          action_id: 'view_full_status'
-        }
-      });
-
-      // Add analytics insights if available
-      if (userAnalytics) {
-        const frequencyEmoji = {
-          daily: '🔥',
-          weekly: '📅', 
-          monthly: '📊',
-          inactive: '😴'
-        };
-        
-        const trendEmoji = {
-          increasing: '📈',
-          stable: '➡️',
-          decreasing: '📉'
-        };
-
-        blocks.push({
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `📊 *Your Insights*\n${frequencyEmoji[userAnalytics.submissionFrequency]} ${userAnalytics.submissionFrequency.charAt(0).toUpperCase() + userAnalytics.submissionFrequency.slice(1)} contributor • ${trendEmoji[userAnalytics.activityTrend]} ${userAnalytics.activityTrend} trend\n💡 ${userAnalytics.totalSubmissions} submissions • 📈 ${userAnalytics.averageXpPerSubmission} avg XP`
-          },
-          accessory: {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: '📈 Full Analytics'
-            },
-            action_id: 'view_full_analytics'
-          }
-        });
-      }
-    } else {
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '🌟 *Get Started*\nSubmit your first prompt to start earning XP and climbing the leaderboard!'
-        },
-        accessory: {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '🚀 Submit Prompt'
-          },
-          action_id: 'trigger_submit_command'
-        }
-      });
-    }
-
-    // Current challenge section
-    if (currentChallenge) {
-      blocks.push(
-        {
-          type: 'divider'
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `🎯 *Week ${currentChallenge.week_number} Challenge*\n${currentChallenge.prompt_text.substring(0, 150)}${currentChallenge.prompt_text.length > 150 ? '...' : ''}`
-          },
-          accessory: {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: '🎯 Respond'
-            },
-            action_id: 'submit_challenge_response'
-          }
-        }
-      );
-    }
-
-    // Top players preview
-    if (topUsers.length > 0) {
-      blocks.push(
-        {
-          type: 'divider'
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*🏆 Top Players*'
-          },
-          accessory: {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: 'View Full Board'
-            },
-            action_id: 'view_full_leaderboard'
-          }
-        }
-      );
-
-      topUsers.slice(0, 3).forEach((user, index) => {
-        const rankEmoji = ['🥇', '🥈', '🥉'][index];
-        const isCurrentUser = user.slack_user_id === event.user;
-        const userText = isCurrentUser ? `*<@${user.slack_user_id}>* ⭐` : `<@${user.slack_user_id}>`;
-        
-        blocks.push({
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `${rankEmoji} ${userText} • ${user.total_xp} XP`
-          }
-        });
-      });
-    }
-
-    // Community stats
-    blocks.push(
-      {
-        type: 'divider'
-      },
-      {
-        type: 'context',
-        elements: [
-          {
-            type: 'mrkdwn',
-            text: `🌟 ${stats.totalUsers} players • 💰 ${stats.totalXP.toLocaleString()} total XP • 🔥 ${stats.topStreak} day top streak`
-          }
-        ]
-      }
-    );
+    // Format enhanced home tab blocks
+    const blocks = HomeTabService.formatEnhancedHomeTab(homeTabData, event.user);
 
     await client.views.publish({
       user_id: event.user,
@@ -232,7 +52,7 @@ app.event('app_home_opened', async ({ event, client }) => {
       }
     });
   } catch (error) {
-    console.error('Error publishing home tab:', error);
+    console.error('Error publishing enhanced home tab:', error);
     
     // Fallback to basic home tab
     await client.views.publish({
@@ -244,7 +64,7 @@ app.event('app_home_opened', async ({ event, client }) => {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '🎮 *Welcome to AI Games!*\n\nThis is your personal dashboard where you can track your XP, streaks, and compete with your team!'
+              text: '🎮 *Welcome to AI Games!*\n\nThis is your comprehensive dashboard for XP, streaks, achievements, and community competition!'
             }
           },
           {
@@ -253,6 +73,20 @@ app.event('app_home_opened', async ({ event, client }) => {
               type: 'mrkdwn',
               text: '📊 *Getting Started*\nUse `/submit` to submit your first prompt and start earning XP!'
             }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🚀 Submit Prompt'
+                },
+                action_id: 'trigger_submit_command',
+                style: 'primary'
+              }
+            ]
           }
         ]
       }
@@ -479,64 +313,31 @@ app.command('/status', async ({ ack, body, client }) => {
   await ack();
   
   try {
-    const { LeaderboardService } = await import('./services/leaderboardService');
-    const { AnalyticsService } = await import('./services/analyticsService');
+    const { StatusService } = await import('./services/statusService');
+    const { UserService } = await import('./services/userService');
     
-    // Get user ranking and analytics
-    const ranking = await LeaderboardService.getUserRanking(body.user_id);
-    const analytics = await AnalyticsService.getUserAnalytics(body.user_id);
+    // Check if user exists and has data
+    const user = await UserService.getUserBySlackId(body.user_id);
     
-    if (!ranking || !analytics) {
-      await client.chat.postEphemeral({
-        channel: body.channel_id,
-        user: body.user_id,
-        text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and earn your first XP!',
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '🎮 *Welcome to AI Games!*\n\nYou haven\'t submitted any prompts yet. Use `/submit` to get started and earn your first XP!'
-            }
-          },
-          {
-            type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '🚀 Submit First Prompt'
-                },
-                action_id: 'trigger_submit_command'
-              }
-            ]
-          }
-        ]
-      });
-      return;
+    let blocks: any[];
+    
+    if (!user) {
+      // New user - show welcome and getting started info
+      blocks = StatusService.formatNewUserStatus();
+    } else {
+      // Existing user - show comprehensive status
+      blocks = await StatusService.formatComprehensiveStatus(body.user_id);
     }
-
-    // Combine ranking and analytics blocks
-    const rankingBlocks = LeaderboardService.formatUserRankingForSlack(ranking);
-    const analyticsBlocks = AnalyticsService.formatAnalyticsForSlack(analytics);
-    
-    // Combine blocks with a divider
-    const combinedBlocks = [
-      ...rankingBlocks,
-      { type: 'divider' },
-      ...analyticsBlocks
-    ];
     
     await client.chat.postEphemeral({
       channel: body.channel_id,
       user: body.user_id,
-      text: `📊 Your AI Games Status & Analytics`,
-      blocks: combinedBlocks
+      text: user ? '📊 Your Complete AI Games Status' : '🎮 Welcome to AI Games!',
+      blocks
     });
     
   } catch (error) {
-    console.error('Error handling /status command:', error);
+    console.error('Error handling enhanced /status command:', error);
     
     await client.chat.postEphemeral({
       channel: body.channel_id,
@@ -1677,6 +1478,73 @@ app.action('view_streak_status', async ({ ack, body, client }) => {
       user: body.user.id,
       text: '❌ Sorry, there was an error fetching your streak data. Please try again later.'
     });
+  }
+});
+
+// Handle view_detailed_status button action
+app.action('view_detailed_status', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { StatusService } = await import('./services/statusService');
+    const blocks = await StatusService.formatComprehensiveStatus(body.user.id);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '📊 Your Complete AI Games Status',
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling view_detailed_status action:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error fetching your detailed status. Please try again later.'
+    });
+  }
+});
+
+// Handle view_xp_breakdown button action
+app.action('view_xp_breakdown', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { StatusService } = await import('./services/statusService');
+    const blocks = await StatusService.formatDrillDownView(body.user.id, 'xp_breakdown');
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '💰 Detailed XP Breakdown',
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling view_xp_breakdown action:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error fetching your XP breakdown. Please try again later.'
+    });
+  }
+});
+
+// Handle view_home_tab button action
+app.action('view_home_tab', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '🏠 Click on the "Home" tab in this app to view your personalized dashboard!'
+    });
+  } catch (error) {
+    console.error('Error handling view_home_tab action:', error);
   }
 });
 
