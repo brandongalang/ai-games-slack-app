@@ -67,12 +67,17 @@ A gamified Slack application that encourages AI prompt sharing and collaboration
 - LLM-powered prompt clarity scoring with automatic XP adjustments
 - `/clarity` admin command for prompt analysis and quality management
 - Comprehensive clarity statistics and improvement suggestions
+- `/library` command for browsing and searching the curated prompt library
+- Smart prompt categorization and tagging system with difficulty levels
+- User favorites and collection system for organizing prompts
+- Automated promotion of high-quality submissions to library
+- Usage analytics and quality scoring for library optimization
 
 ## Development Progress
 
 This project uses TypeScript and the Slack Bolt framework.
 
-### Task List (17/26 Complete - 65%)
+### Task List (18/26 Complete - 69%)
 
 #### ✅ Completed Tasks
 - **Task 1**: Project Setup and Initialization
@@ -91,13 +96,13 @@ This project uses TypeScript and the Slack Bolt framework.
 - **Task 14**: Implement LLM Helpful Comment Judge
 - **Task 15**: Enhance Home Tab & /status with Full Data
 - **Task 16**: Implement Team Leaderboard on Home Tab
+- **Task 18**: Implement Prompt Library MVP
 
 #### 🔄 In Progress Tasks
 - (None currently)
 
 #### 📋 Pending Tasks
 - **Task 17**: Implement Badge System & Slack Profile Update
-- **Task 18**: Implement Prompt Library MVP
 - **Task 19**: Implement LLM Digest Writer
 - **Task 20**: Implement Scheduled Digest Posts
 - **Task 21**: Implement Season Management Logic

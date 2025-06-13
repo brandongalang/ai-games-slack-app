@@ -1843,6 +1843,646 @@ ${stats.distributionByScore.map(d => `Score ${d.score}: ${d.count} submissions`)
   }
 });
 
+// Handle /library slash command
+app.command('/library', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { PromptLibraryService } = await import('./services/promptLibraryService');
+    const { UserService } = await import('./services/userService');
+    
+    const args = (body.text || '').trim().split(' ');
+    const command = args[0]?.toLowerCase();
+    
+    // Get user for personalization
+    const user = await UserService.getUserBySlackId(body.user_id);
+    
+    if (command === 'search' || command === 's') {
+      // Handle search command: /library search [query]
+      const query = args.slice(1).join(' ');
+      
+      if (!query || query.length < 2) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '🔍 Please provide a search query: `/library search <your query>`\n\nExample: `/library search writing prompts for emails`'
+        });
+        return;
+      }
+      
+      const searchResult = await PromptLibraryService.searchLibraryItems(
+        { query, sortBy: 'quality' },
+        1,
+        10,
+        user?.user_id
+      );
+      
+      if (searchResult.items.length === 0) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: `🔍 No prompts found for "${query}"\n\nTry different keywords or browse by category with \`/library browse\``
+        });
+        return;
+      }
+      
+      const blocks = PromptLibraryService.formatLibraryItemsForSlack(
+        searchResult.items,
+        `🔍 *Search Results for "${query}"* (${searchResult.total} found)`,
+        true
+      );
+      
+      // Add pagination controls if needed
+      if (searchResult.hasMore) {
+        blocks.push({
+          type: 'context',
+          elements: [{
+            type: 'mrkdwn',
+            text: `📄 Showing first ${searchResult.items.length} of ${searchResult.total} results. Use filters for more specific search.`
+          }]
+        });
+      }
+      
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: `🔍 Search Results for "${query}"`,
+        blocks
+      });
+      
+    } else if (command === 'browse' || command === 'b') {
+      // Handle browse command: /library browse [category]
+      const category = args[1]?.toLowerCase();
+      
+      if (category) {
+        // Browse specific category
+        const searchResult = await PromptLibraryService.searchLibraryItems(
+          { category, sortBy: 'quality' },
+          1,
+          10,
+          user?.user_id
+        );
+        
+        if (searchResult.items.length === 0) {
+          await client.chat.postEphemeral({
+            channel: body.channel_id,
+            user: body.user_id,
+            text: `📂 No prompts found in category "${category}"\n\nAvailable categories: writing, coding, business, research, creative`
+          });
+          return;
+        }
+        
+        const blocks = PromptLibraryService.formatLibraryItemsForSlack(
+          searchResult.items,
+          `📂 *${category.charAt(0).toUpperCase() + category.slice(1)} Prompts* (${searchResult.total} found)`,
+          true
+        );
+        
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: `📂 ${category.charAt(0).toUpperCase() + category.slice(1)} Prompts`,
+          blocks
+        });
+      } else {
+        // Show category browser
+        const stats = await PromptLibraryService.getLibraryStats();
+        
+        const blocks = [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `📚 *AI Games Prompt Library*\n\n${stats.totalItems} curated prompts across ${stats.categoryCounts.length} categories`
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*📂 Browse by Category:*'
+            }
+          }
+        ];
+        
+        // Add category buttons
+        const categoryButtons: any[] = [];
+        stats.categoryCounts.slice(0, 5).forEach(cat => {
+          const emoji = {
+            'writing': '✍️',
+            'coding': '💻', 
+            'business': '💼',
+            'research': '🔬',
+            'creative': '🎨'
+          }[cat.category] || '📝';
+          
+          categoryButtons.push({
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: `${emoji} ${cat.category} (${cat.count})`
+            },
+            action_id: `browse_category_${cat.category}`,
+            value: cat.category
+          });
+        });
+        
+        blocks.push({
+          type: 'actions',
+          elements: categoryButtons
+        } as any);
+        
+        blocks.push(
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*💡 Quick Commands:*\n• `/library search <query>` - Search prompts\n• `/library browse <category>` - Browse category\n• `/library favorites` - Your favorites\n• `/library featured` - Featured prompts'
+            }
+          }
+        );
+        
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '📚 AI Games Prompt Library',
+          blocks
+        });
+      }
+      
+    } else if (command === 'favorites' || command === 'fav') {
+      // Show user's favorites
+      if (!user) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '🎮 Welcome to AI Games! Submit your first prompt with `/submit` to start using the library.'
+        });
+        return;
+      }
+      
+      const favorites = await PromptLibraryService.getUserFavorites(user.user_id, 1, 10);
+      
+      if (favorites.items.length === 0) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '⭐ You haven\'t favorited any prompts yet!\n\nBrowse the library and click the ⭐ button on prompts you like.'
+        });
+        return;
+      }
+      
+      const blocks = PromptLibraryService.formatLibraryItemsForSlack(
+        favorites.items,
+        `⭐ *Your Favorite Prompts* (${favorites.total} total)`,
+        true
+      );
+      
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '⭐ Your Favorite Prompts',
+        blocks
+      });
+      
+    } else if (command === 'featured' || command === 'f') {
+      // Show featured prompts
+      const searchResult = await PromptLibraryService.searchLibraryItems(
+        { featured: true, sortBy: 'quality' },
+        1,
+        10,
+        user?.user_id
+      );
+      
+      if (searchResult.items.length === 0) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '🌟 No featured prompts available yet. Check back soon!'
+        });
+        return;
+      }
+      
+      const blocks = PromptLibraryService.formatLibraryItemsForSlack(
+        searchResult.items,
+        `🌟 *Featured Prompts* (${searchResult.total} total)`,
+        true
+      );
+      
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '🌟 Featured Prompts',
+        blocks
+      });
+      
+    } else {
+      // Default library overview
+      const stats = await PromptLibraryService.getLibraryStats();
+      const collections = await PromptLibraryService.getCollections(false, undefined, true);
+      
+      const blocks = [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `📚 *AI Games Prompt Library*\n\n✨ ${stats.totalItems} curated prompts\n📁 ${stats.totalCollections} collections\n🌟 ${stats.featuredItems} featured\n✅ ${stats.verifiedItems} verified`
+          }
+        },
+        {
+          type: 'divider'
+        }
+      ];
+      
+      // Add featured collections
+      if (collections.length > 0) {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*🌟 Featured Collections:*'
+          }
+        });
+        
+        collections.slice(0, 3).forEach(collection => {
+          blocks.push({
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `📁 *${collection.name}*\n${collection.description || 'Curated collection of quality prompts'}`
+            },
+            accessory: {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '👁️ View'
+              },
+              action_id: `view_collection_${collection.collection_id}`,
+              value: collection.collection_id.toString()
+            }
+          } as any);
+        });
+        
+        blocks.push({
+          type: 'divider'
+        });
+      }
+      
+      // Add recent items
+      if (stats.recentItems.length > 0) {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*🆕 Recently Added:*\n${stats.recentItems.slice(0, 3).map(item => 
+              `• ${item.title} (${item.category})`
+            ).join('\n')}`
+          }
+        });
+      }
+      
+      blocks.push(
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*💡 Commands:*\n• `/library search <query>` - Search prompts\n• `/library browse` - Browse categories\n• `/library favorites` - Your favorites\n• `/library featured` - Featured prompts'
+          }
+        }
+      );
+      
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '📚 AI Games Prompt Library',
+        blocks
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error handling /library command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error accessing the library. Please try again later.'
+    });
+  }
+});
+
+// Handle library item view button actions
+app.action(/^view_library_item_(\d+)$/, async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const itemId = parseInt((body as any).actions[0].value);
+    const { PromptLibraryService } = await import('./services/promptLibraryService');
+    const { UserService } = await import('./services/userService');
+    
+    // Get user for personalization
+    const user = await UserService.getUserBySlackId(body.user.id);
+    
+    // Get library item details
+    const item = await PromptLibraryService.getLibraryItem(itemId, user?.user_id);
+    
+    if (!item || !item.submission) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.user.id,
+        user: body.user.id,
+        text: '❌ Library item not found or no longer available.'
+      });
+      return;
+    }
+    
+    const difficultyEmoji = {
+      'beginner': '🟢',
+      'intermediate': '🟡', 
+      'advanced': '🔴'
+    }[item.difficulty_level] || '⚪';
+    
+    const categoryEmoji = {
+      'writing': '✍️',
+      'coding': '💻',
+      'business': '💼',
+      'research': '🔬',
+      'creative': '🎨'
+    }[item.category] || '📝';
+    
+    const blocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${categoryEmoji} *${item.title}*\n\n${difficultyEmoji} ${item.difficulty_level.charAt(0).toUpperCase() + item.difficulty_level.slice(1)} level`
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*📝 Prompt:*\n\`\`\`${item.submission.prompt_text}\`\`\``
+        }
+      }
+    ];
+    
+    if (item.description) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*📖 Description:*\n${item.description}`
+        }
+      });
+    }
+    
+    if (item.submission.output_sample) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*💡 Example Output:*\n${item.submission.output_sample.substring(0, 500)}${item.submission.output_sample.length > 500 ? '...' : ''}`
+        }
+      });
+    }
+    
+    // Add metadata
+    const metadataFields = [];
+    
+    if (item.quality_score) {
+      const stars = '⭐'.repeat(Math.floor(item.quality_score / 2));
+      metadataFields.push({
+        type: 'mrkdwn',
+        text: `*Quality:*\n${stars} ${item.quality_score}/10`
+      });
+    }
+    
+    if (item.usage_count > 0) {
+      metadataFields.push({
+        type: 'mrkdwn',
+        text: `*Usage:*\n${item.usage_count} times`
+      });
+    }
+    
+    if ((item.submission as any).author) {
+      const author = (item.submission as any).author;
+      metadataFields.push({
+        type: 'mrkdwn',
+        text: `*Author:*\n${author.display_name || author.slack_id}`
+      });
+    }
+    
+    if (item.use_case_tags.length > 0) {
+      metadataFields.push({
+        type: 'mrkdwn',
+        text: `*Tags:*\n${item.use_case_tags.join(', ')}`
+      });
+    }
+    
+    if (metadataFields.length > 0) {
+      blocks.push({
+        type: 'section',
+        fields: metadataFields
+      } as any);
+    }
+    
+    // Add action buttons
+    const actionButtons: any[] = [
+      {
+        type: 'button',
+        text: {
+          type: 'plain_text',
+          text: item.is_favorited ? '⭐ Favorited' : '⭐ Favorite'
+        },
+        action_id: `toggle_favorite_${itemId}`,
+        value: itemId.toString(),
+        style: item.is_favorited ? 'primary' : undefined
+      },
+      {
+        type: 'button',
+        text: {
+          type: 'plain_text',
+          text: '📋 Copy Prompt'
+        },
+        action_id: `copy_prompt_${itemId}`,
+        value: itemId.toString()
+      }
+    ];
+    
+    blocks.push({
+      type: 'actions',
+      elements: actionButtons
+    } as any);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: `📝 ${item.title}`,
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error handling view library item action:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error viewing this library item.'
+    });
+  }
+});
+
+// Handle favorite toggle button actions
+app.action(/^toggle_favorite_(\d+)$/, async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const itemId = parseInt((body as any).actions[0].value);
+    const { PromptLibraryService } = await import('./services/promptLibraryService');
+    const { UserService } = await import('./services/userService');
+    
+    // Get user
+    const user = await UserService.getUserBySlackId(body.user.id);
+    
+    if (!user) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.user.id,
+        user: body.user.id,
+        text: '🎮 Welcome to AI Games! Submit your first prompt with `/submit` to start using favorites.'
+      });
+      return;
+    }
+    
+    // Toggle favorite
+    const isFavorited = await PromptLibraryService.toggleFavorite(user.user_id, itemId);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: isFavorited ? 
+        '⭐ Added to your favorites!' : 
+        '💫 Removed from favorites.'
+    });
+    
+  } catch (error) {
+    console.error('Error toggling favorite:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error updating your favorites.'
+    });
+  }
+});
+
+// Handle copy prompt button actions
+app.action(/^copy_prompt_(\d+)$/, async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const itemId = parseInt((body as any).actions[0].value);
+    const { PromptLibraryService } = await import('./services/promptLibraryService');
+    const { UserService } = await import('./services/userService');
+    
+    // Get user for analytics
+    const user = await UserService.getUserBySlackId(body.user.id);
+    
+    // Get library item
+    const item = await PromptLibraryService.getLibraryItem(itemId, user?.user_id);
+    
+    if (!item || !item.submission) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.user.id,
+        user: body.user.id,
+        text: '❌ Library item not found.'
+      });
+      return;
+    }
+    
+    // Record copy analytics
+    if (user) {
+      await PromptLibraryService.recordUsageAnalytics(itemId, user.user_id, 'copy', 'button');
+    }
+    
+    // Send prompt text as copyable message
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: `📋 *Copied: ${item.title}*\n\n\`\`\`${item.submission.prompt_text}\`\`\`\n\n💡 You can now copy this text and use it in your AI tools!`
+    });
+    
+  } catch (error) {
+    console.error('Error copying prompt:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error copying the prompt.'
+    });
+  }
+});
+
+// Handle browse category button actions
+app.action(/^browse_category_(.+)$/, async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const category = (body as any).actions[0].value;
+    const { PromptLibraryService } = await import('./services/promptLibraryService');
+    const { UserService } = await import('./services/userService');
+    
+    // Get user for personalization
+    const user = await UserService.getUserBySlackId(body.user.id);
+    
+    // Browse specific category
+    const searchResult = await PromptLibraryService.searchLibraryItems(
+      { category, sortBy: 'quality' },
+      1,
+      10,
+      user?.user_id
+    );
+    
+    if (searchResult.items.length === 0) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.user.id,
+        user: body.user.id,
+        text: `📂 No prompts found in category "${category}"`
+      });
+      return;
+    }
+    
+    const blocks = PromptLibraryService.formatLibraryItemsForSlack(
+      searchResult.items,
+      `📂 *${category.charAt(0).toUpperCase() + category.slice(1)} Prompts* (${searchResult.total} found)`,
+      true
+    );
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: `📂 ${category.charAt(0).toUpperCase() + category.slice(1)} Prompts`,
+      blocks
+    });
+    
+  } catch (error) {
+    console.error('Error browsing category:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel?.id || body.user.id,
+      user: body.user.id,
+      text: '❌ Sorry, there was an error browsing this category.'
+    });
+  }
+});
+
 // Start the app
 (async () => {
   await app.start();

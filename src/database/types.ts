@@ -140,3 +140,95 @@ export const XP_VALUES = {
   [XP_EVENTS.REMIX_ORIGINAL]: 8,
   [XP_EVENTS.REMIX_IMPROVED]: 12
 } as const;
+
+// Prompt Library Types
+export interface PromptCollection {
+  collection_id: number;
+  name: string;
+  description?: string;
+  creator_id: number;
+  is_public: boolean;
+  is_featured: boolean;
+  is_system_collection: boolean;
+  metadata: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PromptLibraryItem {
+  library_item_id: number;
+  submission_id: number;
+  title: string;
+  description?: string;
+  category: string;
+  subcategory?: string;
+  difficulty_level: 'beginner' | 'intermediate' | 'advanced';
+  estimated_time_minutes?: number;
+  use_case_tags: string[];
+  quality_score?: number;
+  usage_count: number;
+  curator_notes?: string;
+  is_featured: boolean;
+  is_verified: boolean;
+  promoted_by?: number;
+  promoted_at: string;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  submission?: Submission;
+  author?: User;
+  promoter?: User;
+  is_favorited?: boolean;
+}
+
+export interface CollectionItem {
+  collection_id: number;
+  library_item_id: number;
+  added_by?: number;
+  added_at: string;
+  display_order: number;
+}
+
+export interface UserFavorite {
+  user_id: number;
+  library_item_id: number;
+  created_at: string;
+}
+
+export interface LibraryUsageAnalytics {
+  usage_id: number;
+  library_item_id: number;
+  user_id?: number;
+  action_type: 'view' | 'copy' | 'favorite' | 'share' | 'remix';
+  source: string;
+  metadata: Record<string, any>;
+  created_at: string;
+}
+
+// Library search and filter types
+export interface LibrarySearchFilters {
+  query?: string;
+  category?: string;
+  subcategory?: string;
+  difficulty?: 'beginner' | 'intermediate' | 'advanced';
+  tags?: string[];
+  featured?: boolean;
+  verified?: boolean;
+  minQuality?: number;
+  sortBy?: 'quality' | 'usage' | 'recent' | 'alphabetical';
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface LibrarySearchResult {
+  items: PromptLibraryItem[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+// Collection with items
+export interface CollectionWithItems extends PromptCollection {
+  items: PromptLibraryItem[];
+  item_count: number;
+}
