@@ -343,6 +343,212 @@ app.view('submit_prompt_modal', async ({ ack, body, view, client }) => {
   }
 });
 
+// Handle 'Remix this' message shortcut
+app.shortcut('remix_this_prompt', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const { SubmissionService } = await import('./services/submissionService');
+    const { UserService } = await import('./services/userService');
+    
+    // Check if this is a message shortcut
+    if (body.type !== 'message_action') {
+      throw new Error('This shortcut only works on messages');
+    }
+    
+    // Extract message details - now TypeScript knows this is a MessageShortcut
+    const message = body.message;
+    const messageText = message.text || '';
+    const messageUser = message.user;
+    const messageTs = message.ts;
+    
+    console.log('Remix shortcut triggered:', {
+      messageText: messageText.substring(0, 100),
+      messageUser,
+      triggeredBy: body.user.id
+    });
+    
+    // Try to find if this message corresponds to a submission
+    // For now, we'll use the message text as the prompt to remix
+    let originalSubmissionId: number | undefined;
+    let originalPrompt = messageText;
+    let originalTitle: string | undefined;
+    
+    // TODO: In a real implementation, you might store message_ts in submissions
+    // or use message permalinks to track which messages are submissions
+    
+    // Get submissions for remix dropdown (for fallback)
+    const user = await UserService.getUserBySlackId(body.user.id);
+    const remixOptions = await SubmissionService.getSubmissionsForRemix(user?.user_id);
+    
+    const remixSelectOptions = remixOptions.map(sub => ({
+      text: { type: 'plain_text' as const, text: sub.title },
+      value: sub.id.toString()
+    }));
+
+    // Open the submit modal with pre-filled data
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'submit_prompt_modal',
+        title: {
+          type: 'plain_text',
+          text: 'Remix This Prompt'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `🎵 *Remixing a prompt!*\n\nYou're creating a remix based on ${messageUser ? `<@${messageUser}>'s` : 'this'} message. Add your own spin to make it even better!`
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'input',
+            block_id: 'title_input',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'title_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Give your remix a catchy title...'
+              },
+              initial_value: originalTitle ? `${originalTitle} (Remix)` : ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Title'
+            },
+            optional: true
+          },
+          {
+            type: 'input',
+            block_id: 'prompt_input',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'prompt_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'Modify and improve the original prompt...'
+              },
+              initial_value: originalPrompt
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Prompt/Workflow *'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'description_input',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'description_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'Describe what you changed or improved in your remix...'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'What did you improve?'
+            },
+            optional: true
+          },
+          {
+            type: 'input',
+            block_id: 'output_input',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'output_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'Share an example output from your improved prompt...'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Example Output'
+            },
+            optional: true
+          },
+          {
+            type: 'input',
+            block_id: 'tags_input',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'tags_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., remix, improved, creative'
+              },
+              initial_value: 'remix'
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Tags (comma-separated)'
+            },
+            optional: true
+          },
+          ...(remixSelectOptions.length > 0 ? [{
+            type: 'input' as const,
+            block_id: 'remix_input',
+            element: {
+              type: 'static_select' as const,
+              action_id: 'remix_selection',
+              placeholder: {
+                type: 'plain_text' as const,
+                text: 'Link to original submission (optional)...'
+              },
+              options: remixSelectOptions.slice(0, 100),
+              ...(originalSubmissionId ? { initial_option: {
+                text: { type: 'plain_text' as const, text: originalTitle || 'Original Submission' },
+                value: originalSubmissionId.toString()
+              }} : {})
+            },
+            label: {
+              type: 'plain_text' as const,
+              text: 'Original Submission (Optional)'
+            },
+            optional: true
+          }] : []),
+          {
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: `💡 *Remix Tip:* Great remixes build on the original by adding clarity, specificity, or creative improvements. Share what makes your version special!`
+              }
+            ]
+          }
+        ],
+        submit: {
+          type: 'plain_text',
+          text: 'Submit Remix'
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error handling remix shortcut:', error);
+    
+    // Send error message to user
+    const channelId = body.type === 'message_action' ? body.channel.id : body.user.id;
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: body.user.id,
+      text: `❌ Sorry, there was an error setting up the remix. Please try using \`/submit\` directly.`
+    });
+  }
+});
+
 // Start the app
 (async () => {
   await app.start();
