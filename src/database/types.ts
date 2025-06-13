@@ -34,7 +34,7 @@ export interface Submission {
   tags: string[];
   submission_type: 'workflow' | 'challenge_response' | 'remix';
   parent_submission_id?: number;
-  llm_clarity_score?: number;
+  clarity_score?: number;
   llm_similarity_score?: number;
   is_promoted_to_library: boolean;
   season_id?: number;
@@ -110,6 +110,7 @@ export interface NotificationPreferences {
 export const XP_EVENTS = {
   SUBMISSION_BASE: 'submission_base',
   CLARITY_BONUS: 'clarity_bonus',
+  CLARITY_PENALTY: 'clarity_penalty',
   FIRST_SUBMISSION_BONUS: 'first_submission_bonus',
   WEEKLY_CHALLENGE_BONUS: 'weekly_challenge_bonus',
   HELPFUL_COMMENT: 'helpful_comment',
@@ -126,6 +127,7 @@ export const XP_EVENTS = {
 export const XP_VALUES = {
   [XP_EVENTS.SUBMISSION_BASE]: 10,
   [XP_EVENTS.CLARITY_BONUS]: 5,
+  [XP_EVENTS.CLARITY_PENALTY]: -3, // Penalty for poor clarity
   [XP_EVENTS.FIRST_SUBMISSION_BONUS]: 5,
   [XP_EVENTS.WEEKLY_CHALLENGE_BONUS]: 10,
   [XP_EVENTS.HELPFUL_COMMENT]: 3,

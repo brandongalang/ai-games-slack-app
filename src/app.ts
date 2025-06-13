@@ -826,6 +826,28 @@ app.view('submit_prompt_modal', async ({ ack, body, view, client }) => {
       );
     }
     
+    // Analyze prompt clarity and apply scoring
+    let clarityAnalysis = null;
+    try {
+      const { ClarityService } = await import('./services/clarityService');
+      clarityAnalysis = await ClarityService.analyzeSubmissionClarity(
+        submission.submission_id,
+        promptText,
+        {
+          title,
+          description,
+          tags
+        }
+      );
+      console.log('Clarity analysis completed:', {
+        submissionId: submission.submission_id,
+        clarityScore: clarityAnalysis.clarityScore
+      });
+    } catch (error) {
+      console.error('Error analyzing clarity:', error);
+      // Continue without clarity analysis if it fails
+    }
+    
     // Calculate XP using the comprehensive XP system
     const { XPService } = await import('./services/xpService');
     
@@ -868,6 +890,18 @@ app.view('submit_prompt_modal', async ({ ack, body, view, client }) => {
     
     if (remixAnalysis && remixAnalysis.improvementScore > 0) {
       confirmationParts.push(`🔄 *Remix Quality:* Your remix scored ${remixAnalysis.improvementScore}/10 for improvement!`);
+    }
+    
+    // Add clarity analysis results
+    if (clarityAnalysis) {
+      const clarityEmoji = clarityAnalysis.clarityScore >= 8 ? '🟢' : 
+                          clarityAnalysis.clarityScore >= 6 ? '🟡' : '🔴';
+      confirmationParts.push(`${clarityEmoji} *Clarity Score:* ${clarityAnalysis.clarityScore}/10`);
+      
+      if (clarityAnalysis.xpImpact.clarityBonus !== 0) {
+        const bonusText = clarityAnalysis.xpImpact.clarityBonus > 0 ? 'bonus' : 'adjustment';
+        confirmationParts.push(`📊 *Clarity ${bonusText}:* ${clarityAnalysis.xpImpact.clarityBonus > 0 ? '+' : ''}${clarityAnalysis.xpImpact.clarityBonus} XP`);
+      }
     }
     
     confirmationParts.push(``, `Check out your progress in the Home tab or use \`/status\` to see your stats.`);
@@ -1703,6 +1737,108 @@ app.command('/similarity', async ({ ack, body, client }) => {
       channel: body.channel_id,
       user: body.user_id,
       text: '❌ Sorry, there was an error with the similarity command. Please try again later.'
+    });
+  }
+});
+
+// Handle /clarity slash command (admin only)
+app.command('/clarity', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    // Check if user is admin
+    const adminUsers = (process.env.ADMIN_USERS || '').split(',').map(u => u.trim());
+    if (!adminUsers.includes(body.user_id)) {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: '❌ This command is only available to administrators.'
+      });
+      return;
+    }
+    
+    const { ClarityService } = await import('./services/clarityService');
+    const args = (body.text || '').trim().split(' ');
+    const command = args[0]?.toLowerCase();
+    
+    if (command === 'analyze' && args[1]) {
+      // Re-analyze a specific submission
+      const submissionId = parseInt(args[1]);
+      if (isNaN(submissionId)) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '❌ Please provide a valid submission ID: `/clarity analyze <submission_id>`'
+        });
+        return;
+      }
+      
+      const analysis = await ClarityService.reanalyzeClarityScore(submissionId);
+      
+      if (!analysis) {
+        await client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: '❌ Failed to analyze submission. Please check the submission ID.'
+        });
+        return;
+      }
+      
+      const blocks = ClarityService.formatClarityForSlack(analysis.analysis);
+      
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: `🔍 Clarity Analysis for Submission ${submissionId}`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `🔍 *Clarity Analysis for Submission ${submissionId}*\n\n📊 **Score:** ${analysis.clarityScore}/10\n💰 **XP Impact:** ${analysis.xpImpact.clarityBonus > 0 ? '+' : ''}${analysis.xpImpact.clarityBonus} XP`
+            }
+          },
+          ...blocks
+        ]
+      });
+      
+    } else if (command === 'stats') {
+      // Show clarity analysis statistics
+      const stats = await ClarityService.getClarityStats();
+      
+      const statsText = `📊 *Clarity Analysis Statistics (Last 30 days)*
+
+📝 **Total Analyzed:** ${stats.totalAnalyzed}
+📈 **Average Score:** ${stats.averageScore}/10
+🟢 **High Quality (7+):** ${stats.highQualityCount} (${stats.totalAnalyzed > 0 ? Math.round((stats.highQualityCount / stats.totalAnalyzed) * 100) : 0}%)
+🔴 **Low Quality (≤4):** ${stats.lowQualityCount} (${stats.totalAnalyzed > 0 ? Math.round((stats.lowQualityCount / stats.totalAnalyzed) * 100) : 0}%)
+
+📊 **Score Distribution:**
+${stats.distributionByScore.map(d => `Score ${d.score}: ${d.count} submissions`).join('\n')}
+
+🔍 The LLM Clarity Scorer automatically analyzes all submissions for prompt quality and awards XP accordingly.`;
+
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: statsText
+      });
+      
+    } else {
+      await client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: `🔍 *Clarity Admin Commands*\n\n• \`/clarity analyze <submission_id>\` - Re-analyze submission clarity\n• \`/clarity stats\` - Show analysis statistics\n\n🤖 The system automatically analyzes all new submissions using LLM and awards XP based on prompt clarity and quality.`
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error handling /clarity command:', error);
+    
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: '❌ Sorry, there was an error with the clarity command. Please try again later.'
     });
   }
 });

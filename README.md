@@ -64,12 +64,15 @@ A gamified Slack application that encourages AI prompt sharing and collaboration
 - Similarity-based XP bonuses and penalties for content quality
 - Automated comment helpfulness detection with LLM analysis
 - Quality-based XP rewards for helpful comments and feedback
+- LLM-powered prompt clarity scoring with automatic XP adjustments
+- `/clarity` admin command for prompt analysis and quality management
+- Comprehensive clarity statistics and improvement suggestions
 
 ## Development Progress
 
 This project uses TypeScript and the Slack Bolt framework.
 
-### Task List (16/26 Complete - 62%)
+### Task List (17/26 Complete - 65%)
 
 #### ✅ Completed Tasks
 - **Task 1**: Project Setup and Initialization
@@ -78,6 +81,7 @@ This project uses TypeScript and the Slack Bolt framework.
 - **Task 4**: Basic XP Awarding for Submission
 - **Task 5**: Implement Slack Home Tab - Personal View (Basic)
 - **Task 6**: Setup Cloud Run for LLM Services
+- **Task 7**: Implement LLM Clarity Scorer
 - **Task 8**: Implement Weekly Prompt Challenge System
 - **Task 9**: Implement Real-time Leaderboard System  
 - **Task 10**: Implement Advanced User Analytics and Statistics Tracking
@@ -89,7 +93,7 @@ This project uses TypeScript and the Slack Bolt framework.
 - **Task 16**: Implement Team Leaderboard on Home Tab
 
 #### 🔄 In Progress Tasks
-- **Task 7**: Implement LLM Clarity Scorer
+- (None currently)
 
 #### 📋 Pending Tasks
 - **Task 17**: Implement Badge System & Slack Profile Update

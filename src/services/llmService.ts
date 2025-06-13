@@ -298,6 +298,175 @@ Respond with valid JSON only.`;
   }
 
   /**
+   * Analyze prompt clarity and provide improvement suggestions
+   */
+  static async analyzePromptClarity(
+    promptText: string,
+    promptContext?: { title?: string; description?: string; tags?: string[] }
+  ): Promise<{
+    clarityScore: number;
+    reasoning: string;
+    suggestions: string[];
+    categories: string[];
+    strengths: string[];
+    weaknesses: string[];
+  }> {
+    try {
+      const contextInfo = promptContext ? `
+**Title:** ${promptContext.title || 'N/A'}
+**Description:** ${promptContext.description || 'N/A'}
+**Tags:** ${promptContext.tags?.join(', ') || 'N/A'}` : '';
+
+      const prompt = `Analyze the clarity and effectiveness of this AI prompt:
+
+**Prompt to Analyze:**
+${promptText}
+${contextInfo}
+
+Please evaluate the prompt's clarity in JSON format with:
+1. clarityScore (1-10): Overall clarity and effectiveness rating
+2. reasoning: Detailed explanation of the score
+3. suggestions: Array of specific improvement recommendations
+4. categories: Array of clarity aspects (e.g., "specificity", "context", "structure", "actionability", "constraints")
+5. strengths: Array of what the prompt does well
+6. weaknesses: Array of areas that need improvement
+
+Rating Scale:
+- 1-3: Very unclear, vague, or confusing
+- 4-6: Moderately clear but needs significant improvement  
+- 7-8: Clear and well-structured with minor improvements needed
+- 9-10: Exceptionally clear, specific, and effective
+
+Consider these clarity factors:
+- Clarity of instructions and expectations
+- Specificity of requirements and constraints
+- Proper context and background information
+- Actionability and measurable outcomes
+- Structure and organization
+- Grammar and language quality
+- Appropriate level of detail
+- Clear success criteria`;
+
+      const response = await this.completion(
+        [
+          {
+            role: 'system',
+            content: 'You are an expert AI prompt evaluator. Provide thorough, constructive analysis to help improve prompt quality. Always respond with valid JSON.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        {
+          temperature: 0.3,
+          maxTokens: 1000,
+          responseFormat: 'json'
+        }
+      );
+
+      const analysis = JSON.parse(response.content);
+      
+      // Validate and normalize the response
+      return {
+        clarityScore: Math.min(10, Math.max(1, Number(analysis.clarityScore) || 5)),
+        reasoning: analysis.reasoning || 'Unable to provide detailed analysis',
+        suggestions: Array.isArray(analysis.suggestions) ? analysis.suggestions : [],
+        categories: Array.isArray(analysis.categories) ? analysis.categories : ['general'],
+        strengths: Array.isArray(analysis.strengths) ? analysis.strengths : [],
+        weaknesses: Array.isArray(analysis.weaknesses) ? analysis.weaknesses : []
+      };
+    } catch (error) {
+      console.error('Error analyzing prompt clarity:', error);
+      
+      // Fallback analysis based on basic heuristics
+      return this.generateFallbackClarityAnalysis(promptText);
+    }
+  }
+
+  /**
+   * Fallback clarity analysis using basic heuristics
+   */
+  private static generateFallbackClarityAnalysis(promptText: string): {
+    clarityScore: number;
+    reasoning: string;
+    suggestions: string[];
+    categories: string[];
+    strengths: string[];
+    weaknesses: string[];
+  } {
+    const text = promptText.toLowerCase();
+    const wordCount = promptText.split(/\s+/).length;
+    
+    let score = 5; // Base score
+    const strengths: string[] = [];
+    const weaknesses: string[] = [];
+    const suggestions: string[] = [];
+    
+    // Word count analysis
+    if (wordCount < 10) {
+      weaknesses.push('Very short prompt');
+      suggestions.push('Add more specific details and context');
+      score -= 2;
+    } else if (wordCount > 200) {
+      weaknesses.push('Very long prompt');
+      suggestions.push('Consider breaking down into smaller, focused parts');
+      score -= 1;
+    } else {
+      strengths.push('Appropriate length');
+    }
+    
+    // Question words (good for clarity)
+    const questionWords = ['what', 'how', 'why', 'when', 'where', 'which'];
+    const hasQuestions = questionWords.some(word => text.includes(word));
+    if (hasQuestions) {
+      strengths.push('Uses clear question structure');
+      score += 1;
+    }
+    
+    // Specific instruction words
+    const instructionWords = ['create', 'generate', 'analyze', 'summarize', 'explain', 'list', 'describe'];
+    const hasInstructions = instructionWords.some(word => text.includes(word));
+    if (hasInstructions) {
+      strengths.push('Contains clear action words');
+      score += 1;
+    } else {
+      weaknesses.push('Lacks clear action instructions');
+      suggestions.push('Use specific action verbs like "create", "analyze", or "explain"');
+    }
+    
+    // Context indicators
+    const contextWords = ['context', 'background', 'purpose', 'goal', 'audience'];
+    const hasContext = contextWords.some(word => text.includes(word));
+    if (hasContext) {
+      strengths.push('Provides context');
+      score += 1;
+    }
+    
+    // Constraint indicators  
+    const constraintWords = ['format', 'length', 'style', 'tone', 'limit'];
+    const hasConstraints = constraintWords.some(word => text.includes(word));
+    if (hasConstraints) {
+      strengths.push('Includes constraints or format specifications');
+      score += 1;
+    } else {
+      suggestions.push('Consider adding format or style constraints');
+    }
+    
+    // Ensure score is within bounds
+    score = Math.min(10, Math.max(1, score));
+    
+    return {
+      clarityScore: score,
+      reasoning: `Fallback analysis based on basic heuristics (LLM unavailable). Score: ${score}/10`,
+      suggestions,
+      categories: ['structure', 'specificity'],
+      strengths,
+      weaknesses
+    };
+  }
+
+  /**
    * Fallback basic similarity calculation using simple text comparison
    */
   private static calculateBasicSimilarity(text1: string, text2: string): number {
