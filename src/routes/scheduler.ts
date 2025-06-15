@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { ChallengeService } from '../services/challengeService';
 import { SlackService } from '../services/slackService';
+import { ScheduledDigestService } from '../services/scheduledDigestService';
 import { App } from '@slack/bolt';
 
 const router = Router();
@@ -159,6 +160,106 @@ router.post('/challenge-results', verifySchedulerAuth, async (req: Request, res:
 });
 
 /**
+ * POST /scheduler/process-digests
+ * Endpoint to be called by cron job for digest processing
+ */
+router.post('/process-digests', verifySchedulerAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    console.log('Digest processing scheduler triggered');
+
+    const result = await ScheduledDigestService.processScheduledDigests();
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Digest processing completed',
+        stats: {
+          processed: result.processed,
+          delivered: result.delivered,
+          failed: result.failed
+        },
+        errors: result.errors
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Digest processing failed',
+        errors: result.errors
+      });
+    }
+
+  } catch (error) {
+    console.error('Error in digest processing scheduler:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to process scheduled digests'
+    });
+  }
+});
+
+/**
+ * POST /scheduler/digest-analytics
+ * Get digest delivery analytics
+ */
+router.get('/digest-analytics', verifySchedulerAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const days = parseInt(req.query.days as string) || 30;
+    const analytics = await ScheduledDigestService.getDigestAnalytics(days);
+
+    if (analytics) {
+      res.json({
+        success: true,
+        analytics
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        message: 'No digest analytics available'
+      });
+    }
+
+  } catch (error) {
+    console.error('Error getting digest analytics:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to get digest analytics'
+    });
+  }
+});
+
+/**
+ * POST /scheduler/initialize-digests
+ * Initialize digest scheduling system
+ */
+router.post('/initialize-digests', verifySchedulerAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    console.log('Initializing digest scheduling system');
+
+    const result = await ScheduledDigestService.initializeScheduling();
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Digest scheduling system initialized successfully'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to initialize digest scheduling system',
+        error: result.error
+      });
+    }
+
+  } catch (error) {
+    console.error('Error initializing digest scheduling:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to initialize digest scheduling system'
+    });
+  }
+});
+
+/**
  * GET /scheduler/status
  * Health check and current challenge status
  */
@@ -268,11 +369,35 @@ router.post('/manual-trigger', async (req: Request, res: Response): Promise<void
         });
         return;
       }
+
+      case 'digest': {
+        const { digestType = 'community', targetChannel } = req.body;
+        
+        if (digestType === 'community') {
+          const result = await ScheduledDigestService.processScheduledDigests();
+          res.json({
+            success: result.success,
+            message: 'Community digest processing completed',
+            stats: result.success ? {
+              processed: result.processed,
+              delivered: result.delivered,
+              failed: result.failed
+            } : undefined,
+            errors: result.errors
+          });
+        } else {
+          res.status(400).json({
+            error: 'Invalid digest type',
+            message: 'Only community digests supported for manual trigger'
+          });
+        }
+        return;
+      }
         
       default:
         res.status(400).json({
           error: 'Invalid trigger type',
-          message: 'Valid types: weekly-challenge, reminder, results'
+          message: 'Valid types: weekly-challenge, reminder, results, digest'
         });
         return;
     }

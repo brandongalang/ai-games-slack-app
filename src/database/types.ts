@@ -99,11 +99,56 @@ export interface Badge {
   description: string;
   emoji: string;
   earned_at: string;
+  category?: string;
+  rarity?: 'common' | 'rare' | 'epic' | 'legendary';
+  xp_bonus?: number;
+}
+
+// Badge achievement criteria
+export interface BadgeDefinition {
+  id: string;
+  name: string;
+  description: string;
+  emoji: string;
+  category: string;
+  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  criteria: BadgeCriteria;
+  xp_bonus: number;
+  is_hidden: boolean; // Hidden until unlocked
+  prerequisites?: string[]; // Other badge IDs required
+}
+
+export interface BadgeCriteria {
+  type: 'xp_total' | 'submissions_count' | 'streak_days' | 'quality_average' | 'library_favorites' | 'comments_helpful' | 'special';
+  threshold?: number;
+  timeframe?: 'all_time' | 'season' | 'week' | 'month';
+  special_condition?: string;
+}
+
+// Badge progress tracking
+export interface BadgeProgress {
+  badge_id: string;
+  user_id: number;
+  current_progress: number;
+  required_progress: number;
+  is_completed: boolean;
+  last_updated: string;
 }
 
 export interface NotificationPreferences {
   streak_dms: boolean;
   weekly_digest: boolean;
+}
+
+export interface SecurityLog {
+  log_id: number;
+  user_id?: number;
+  slack_user_id?: string;
+  event_type: 'rate_limit_exceeded' | 'suspicious_behavior' | 'validation_failed' | 'content_blocked' | 'admin_action';
+  description: string;
+  risk_level: 'low' | 'medium' | 'high';
+  metadata: Record<string, any>;
+  created_at: string;
 }
 
 // XP Event Types (constants)

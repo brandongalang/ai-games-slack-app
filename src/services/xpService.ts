@@ -72,10 +72,9 @@ export class XPService {
     const penaltyXP = qualityAdjustment.penalty;
     const totalXP = Math.round((adjustedBaseXP + bonusXP - penaltyXP) * engagementMultiplier);
     
-    // Create XP event record
-    const xpEvent: Omit<XPEvent, 'event_id' | 'created_at'> = {
+    // Create XP event record (temporarily without submission_id until column is added)
+    const xpEvent: any = {
       user_id: userId,
-      submission_id: submissionId,
       event_type: XP_EVENTS[eventType],
       xp_value: totalXP,
       metadata: {
@@ -85,7 +84,9 @@ export class XPService {
         penaltyXP,
         multiplier: engagementMultiplier,
         qualityAdjustment: qualityAdjustment.adjustment,
-        breakdown: qualityAdjustment.breakdown
+        breakdown: qualityAdjustment.breakdown,
+        // Store submission_id in metadata until column exists
+        submissionId: submissionId
       },
       season_id: currentSeasonId
     };

@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  ai-games-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Slack environment variables (set in .env file)
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      
+      # Supabase environment variables
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      
+      # Admin users (comma-separated Slack user IDs)
+      ADMIN_USERS: ${ADMIN_USERS}
+      
+      # Optional: OpenAI/LLM service keys for future features
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      
+    volumes:
+      - app-logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "./scripts/health-check.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Development override
+  ai-games-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+      - "9229:9229" # Debug port
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      ADMIN_USERS: ${ADMIN_USERS}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - app-logs:/app/logs
+    restart: unless-stopped
+
+  # Optional: Local monitoring with Prometheus and Grafana
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+
+volumes:
+  app-logs:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  default:
+    name: ai-games-network

@@ -4,6 +4,8 @@ import { AnalyticsService } from './analyticsService';
 import { StreakService } from './streakService';
 import { XPService } from './xpService';
 import { CommentService } from './commentService';
+import { BadgeService } from './badgeService';
+import { UserService } from './userService';
 
 export class StatusService {
   /**
@@ -145,11 +147,44 @@ export class StatusService {
         });
       }
 
+      // Badges section
+      const user = await UserService.getUserBySlackId(slackUserId);
+      if (user) {
+        const userBadges = await BadgeService.getUserBadges(user.user_id);
+        if (userBadges.length > 0) {
+          blocks.push({ type: 'divider' });
+          
+          const recentBadges = userBadges.slice(-5); // Show last 5 badges
+          let badgesText = `🏆 *Recent Badges* (${userBadges.length} total)\n`;
+          
+          for (const badge of recentBadges) {
+            const badgeDefinition = BadgeService.getBadgeDefinition(badge.id);
+            if (badgeDefinition) {
+              const rarityEmoji = {
+                'common': '🥉',
+                'rare': '🥈', 
+                'epic': '🥇',
+                'legendary': '💎'
+              }[badgeDefinition.rarity] || '🏅';
+              badgesText += `${rarityEmoji} ${badgeDefinition.emoji} ${badgeDefinition.name}\n`;
+            }
+          }
+
+          blocks.push({
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: badgesText
+            }
+          });
+        }
+      }
+
       // Achievements section
       if (data.achievements && data.achievements.length > 0) {
         blocks.push({ type: 'divider' });
         
-        let achievementsText = `🏆 *Achievements*\n`;
+        let achievementsText = `🎯 *Special Achievements*\n`;
         achievementsText += data.achievements.map(ach => 
           `${ach.icon} **${ach.name}** - ${ach.description}`
         ).join('\n');
@@ -182,10 +217,23 @@ export class StatusService {
               type: 'button',
               text: {
                 type: 'plain_text',
-                text: '📈 Detailed Analytics'
+                text: '🏆 View Badges'
+              },
+              action_id: 'view_user_badges'
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '📈 Analytics'
               },
               action_id: 'view_full_analytics'
-            },
+            }
+          ]
+        },
+        {
+          type: 'actions',
+          elements: [
             {
               type: 'button',
               text: {
@@ -193,6 +241,14 @@ export class StatusService {
                 text: '🏆 Leaderboard'
               },
               action_id: 'view_full_leaderboard'
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '🔥 View Streak'
+              },
+              action_id: 'view_streak_status'
             }
           ]
         }

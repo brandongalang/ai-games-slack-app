@@ -1,0 +1,28 @@
+# Development Dockerfile with hot reloading
+FROM node:18-alpine
+
+# Install dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev dependencies)
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Expose application port and debug port
+EXPOSE 3000 9229
+
+# Install development tools globally
+RUN npm install -g nodemon ts-node
+
+# Create logs directory
+RUN mkdir -p /app/logs
+
+# Start application with hot reloading and debugging
+CMD ["npm", "run", "dev:debug"]
