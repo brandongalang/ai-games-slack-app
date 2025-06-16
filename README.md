@@ -31,6 +31,8 @@ A gamified Slack application that encourages AI prompt sharing and collaboration
 - `SUPABASE_URL`: Your Supabase project URL
 - `SUPABASE_ANON_KEY`: Your Supabase anonymous key
 - `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase service role key
+- `USE_LOCAL_DB`: Set to `true` to use the local SQLAlchemy database
+- `LOCAL_DB_URL`: URL of the local database server (default: http://localhost:8000)
 - `LLM_MODEL`: LLM model to use (default: gemini/gemini-1.5-flash)
 - `GEMINI_API_KEY`: Your Google Gemini API key for LLM services
 - `OPENAI_API_KEY`: Optional OpenAI API key (if using OpenAI models)
@@ -136,4 +138,9 @@ ai-games-slack-app/
 2. Create Slack App and configure OAuth scopes
 3. Deploy LLM services to Cloud Run
 4. Configure environment variables
-5. Run the main Slack app
+5. (Optional) Start the local SQLAlchemy server:
+   ```bash
+   pip install -r database/requirements.txt
+   uvicorn database.local_db:app --reload
+   ```
+6. Run the main Slack app
